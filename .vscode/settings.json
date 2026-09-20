@@ -1,0 +1,5 @@
+{
+    "idf.currentSetup": "C:\\esp\\v6.1\\esp-idf",
+    "idf.projectDir": "${workspaceFolder}/01_blink",
+    "idf.port": "COM3"
+}
