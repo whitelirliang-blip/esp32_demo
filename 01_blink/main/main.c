@@ -9,11 +9,11 @@
 static const char *TAG = "BLINK";
 
 void app_main(void) {
-    // 相当于 setup()：配置 GPIO 管脚模式
+    // Equivalent to setup(): Configure GPIO pin modes
     gpio_reset_pin(LED_PIN);
     gpio_set_direction(LED_PIN, GPIO_MODE_OUTPUT);
 
-    // 相当于 loop()：进入无限循环
+    // Equivalent to loop(): enters an infinite loop
     while (1) {
         gpio_set_level(LED_PIN, 1);
         ESP_LOGI(TAG, "LED ON");
