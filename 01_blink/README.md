@@ -24,3 +24,42 @@ A native C11 execution baseline on ESP32 transitioning from high-overhead Arduin
 | `GPIO_NUM_2` | Onboard LED | Output | Push-Pull | Internal Pull-down | Active HIGH (1 = ON, 0 = OFF); Strapping Pin (must not be externally pulled HIGH during power-up) |
 | `GPIO_NUM_1` | Serial Console TX | Output | UART TX (115200 8N1) | None | Log streaming output channel mapped to UART0 via ESP_LOGI |
 | `GPIO_NUM_3` | Serial Console RX | Input | UART RX (115200 8N1) | None | System control & CLI input channel mapped to UART0 |
+
+## System Design & Data Flow
+
+### Software Execution Logic & Pipeline
+```text
+ [ Hardware Power-On / Reset ]
+               |
+               v
+ [ ESP-IDF System Bootloader ]
+               |
+               v  (Spawns System Tasks & Calls app_main)
++-------------------------------------------------------------------+
+| FreeRTOS Application Context: app_main Task                       |
+| - Priority: 1                                                     |
+| - Stack Allocation: 4096 bytes (Configured via sdkconfig)         |
++-------------------------------------------------------------------+
+   |                                                           |
+   | 1. Reset & Set Direction                                  | 2. Stream Log Diagnostics
+   v                                                           v
++-----------------------+                           +-----------------------+
+| driver/gpio HAL Layer |                           | esp_log Subsystem     |
++-----------------------+                           +-----------------------+
+   |                                                           |
+   | (Push-Pull Drive)                                         | (UART0 TX at 115200 8N1)
+   v                                                           v
+[ GPIO_NUM_2: Onboard LED ]                         [ Serial Monitor / Console ]
+   |                                                           |
+   +--- High Level (3.3V) -> LED ON  <=========================> Logs: "BLINK: LED ON"
+   |    vTaskDelay(pdMS_TO_TICKS(1000)) -> Yield CPU to IDLE
+   |
+   +--- Low Level  (0.0V) -> LED OFF <=========================> Logs: "BLINK: LED OFF"
+        vTaskDelay(pdMS_TO_TICKS(1000)) -> Yield CPU to IDLE
+```
+
+### FreeRTOS Task Architecture & Memory Footprint
+
+| Task Name | Priority | Stack Size | Core Affinity | State Transition Mechanics |
+| --- | --- | --- | --- | --- |
+| `app_main` | `1` (Default) | `4096 Bytes` | `tskNO_AFFINITY` | Transitions to `Blocked` state during `vTaskDelay()`, allowing execution of background system tasks (e.g., `IDLE`, `Task WDT`). |
