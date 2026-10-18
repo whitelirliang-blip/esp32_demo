@@ -63,3 +63,93 @@ A native C11 execution baseline on ESP32 transitioning from high-overhead Arduin
 | Task Name | Priority | Stack Size | Core Affinity | State Transition Mechanics |
 | --- | --- | --- | --- | --- |
 | `app_main` | `1` (Default) | `4096 Bytes` | `tskNO_AFFINITY` | Transitions to `Blocked` state during `vTaskDelay()`, allowing execution of background system tasks (e.g., `IDLE`, `Task WDT`). |
+
+## Software Stack & Toolchain 
+
+### Tiered Software Architecture 
+
+```text
++-----------------------------------------------------------------------+
+|  Application Layer                                                    |
+|  - main.c (app_main entry point, LED toggle task logic)               |
++-----------------------------------------------------------------------+
+                                    |
+                                    v
++-----------------------------------------------------------------------+
+|  Operating System & Core Services                                     |
+|  - FreeRTOS (Preemptive Tick-based Scheduler, vTaskDelay, TWDT)       |
+|  - Espressif Logging System (esp_log.h - Thread-safe UART Streaming)  |
++-----------------------------------------------------------------------+
+                                    |
+                                    v
++-----------------------------------------------------------------------+
+|  Hardware Abstraction Layer / Drivers                                 |
+|  - ESP-IDF HAL Driver (driver/gpio.h - Direct Register Operations)    |
+|  - ROM Driver Interface (esp_rom_gpio.h)                              |
++-----------------------------------------------------------------------+
+                                    |
+                                    v
++-----------------------------------------------------------------------+
+|  Target Hardware Platform                                             |
+|  - ESP32 Dual-Core Xtensa LX6 (GPIO_NUM_2, UART0)                     |
++-----------------------------------------------------------------------+
+
+```
+
+### Toolchain & Dependency Matrix 
+
+| Component / Layer | Specification / Name | Version / Standard | Functional Purpose & Dependency Justification |
+| --- | --- | --- | --- |
+| **Language Standard** | ANSI C (C99 Standard) | GNU99 (`-std=gnu99`) | Ensures portable, type-safe C code with fixed-width types (`stdint.h`). |
+| **Build System** | CMake | `^3.16.0` | Declarative, cross-platform build orchestration via `CMakeLists.txt`. |
+| **Build Generator** | Ninja | `v1.10.0+` | Fast, deterministic parallel compilation execution engine. |
+| **SDK / Framework** | ESP-IDF | `v5.x` (Targeting v5.1.2) | Official Espressif framework providing FreeRTOS port and HAL drivers. |
+| **Compiler / Toolchain** | `xtensa-esp32-elf-gcc` | `gcc-12.2.0` (Espressif) | Cross-compiler targeting Xtensa dual-core LX6 architecture. |
+| **RTOS Kernel** | FreeRTOS (Espressif Port) | `v10.4.3-LTS` | Preemptive multitasking, deterministic time-slicing, and TWDT feeding. |
+| **Flashing / Debug Tool** | `esptool.py` / `idf.py` | `v4.6+` | Serial flashing via USB-to-UART bridge at 460800 baud and UART monitor. |
+
+### 4.3 Target Build Specification 
+
+```cmake
+# Root level CMakeLists.txt Specification
+cmake_minimum_required(VERSION 3.16)
+
+include($ENV{IDF_PATH}/tools/cmake/project.cmake)
+project(esp32-espidf-freertos-gpio-baseline)
+
+```
+
+```cmake
+# main/CMakeLists.txt Specification
+idf_component_register(
+    SRCS "main.c"
+    INCLUDE_DIRS "."
+    REQUIRES driver esp_log freertos
+)
+
+```
+
+### Verification Steps 
+1. **Verify Toolchain Version Consistency**:
+```bash
+idf.py --version
+
+```
+
+
+* **Expected Output**: `ESP-IDF v5.1.2` (or the specific v5.x version in use).
+
+
+2. **Validate the Complete Build and Flash Workflow**:
+```bash
+idf.py reconfigure fullclean build
+
+```
+
+
+* **Success Criteria**: The build process completes with zero warnings, and the necessary flashable `.bin` firmware files (e.g., `bootloader.bin`, `partition-table.bin`, `app.bin`) are generated.
+
+
+
+
+
