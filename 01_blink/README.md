@@ -217,7 +217,7 @@ idf.py -p /dev/ttyUSB0 -b 460800 flash monitor
 
 ---
 
-### 5.3 Minimalist Verification Steps
+### Minimalist Verification Steps
 
 After launching `idf.py monitor`, observe the serial output and the onboard hardware to verify that the system is operating as expected:
 
@@ -236,4 +236,78 @@ I (3324) BLINK: LED ON
 
 * **Success Criteria**: The increment between consecutive log timestamps must be exactly `1000ms` (allowing for a kernel tick margin of error of $\pm 10\text{ms}$), and the onboard blue LED (connected to `GPIO_NUM_2`) must blink synchronously at a frequency of 1Hz.
 
+
+## Engineering Challenges & Debugging
+
+### Matrix of Intercepted Failure Modes
+
+| Hazard / Symptom | Root Cause (System/Kernel Level) | Mitigation & Fix Strategy | Structural Impact |
+| :--- | :--- | :--- | :--- |
+| **System Crash / Reset Loop**<br>`Task watchdog got triggered (TWDT)` | An infinite loop (`while(1)`) in `app_main` lacks a kernel-blocking API call, preventing the low-priority `IDLE` task from executing and, consequently, failing to "feed" (reset) the watchdog timer. | Use `vTaskDelay(pdMS_TO_TICKS(1000))` to explicitly yield CPU control, transitioning the task into the FreeRTOS `Blocked` state. | Ensures deterministic time-slice allocation by the scheduler; eliminates TWDT-triggered resets. |
+| **Boot Mode Corruption**<br>ESP32 hangs in the bootloader or outputs garbled text upon power-up | `GPIO_NUM_2` functions as a "strapping pin"; external circuitry or strong pull-up/pull-down interference during power-on reset causes the chip to enter an incorrect boot/programming mode. | Ensure any external LED is connected in series with a current-limiting resistor of $\ge 1\text{k}\Omega$; avoid forcing the pin to a high state during the boot sequence. Include a warning in the pinout specification. | Guarantees that the chip’s power-on boot logic consistently defaults to the intended SPI Flash startup mode. | |
+| **Garbage Characters in UART Log**<br>UART output contains garbled or nonsensical characters | Mismatch in baud rate configuration; or a conflict between the baud rate of the host's monitor port (115200 8N1) and the initial baud rate of the chip's bootloader (74880/115200). | Explicitly set `CONFIG_ESP_CONSOLE_UART_BAUDRATE=115200` in `sdkconfig`, and consistently specify `-b 115200` in the CLI. | Establish a reliable and deterministic physical-layer communication channel for diagnostics. |
+
+---
+
+### Deep Dive: Task Watchdog Timer (TWDT) Starvation Analysis
+
+#### 1. Defective Implementation
+```c
+// BAD PRACTICE: CPU Starvation
+void app_main(void) {
+gpio_reset_pin(GPIO_NUM_2);
+gpio_set_direction(GPIO_NUM_2, GPIO_MODE_OUTPUT);
+
+while (1) {
+gpio_set_level(GPIO_NUM_2, 1);
+// ❌ DEADLY BUG: Busy-waiting loop locks CPU Core 0, starving the IDLE task
+for (volatile uint32_t i = 0; i < 10000000; i++);
+gpio_set_level(GPIO_NUM_2, 0);
+for (volatile uint32_t i = 0; i < 10000000; i++);
+}
+}
+```
+
+#### 2. Crash Log Diagnostic
+
+```text
+E (5320) task_wdt: Task watchdog got triggered. The following tasks did not reset the watchdog in time:
+E (5320) task_wdt: - main (CPU 0)
+E (5320) task_wdt: Tasks currently running:
+E (5320) task_wdt: CPU 0: main
+E (5320) task_wdt: Aborting program.
+Guru Meditation Error: Core 0 panic'ed (Interrupt wdt timeout on CPU0).
+```
+
+#### 3. Root Cause & Architectural Fix
+
+* **Root Cause Analysis**: FreeRTOS is a preemptive RTOS. The `app_main` task has a default priority of `1`, while the watchdog "feeding" (resetting) mechanism relies on the `IDLE0` task, which runs at priority `0`. Busy-waiting drives CPU usage to 100%, preventing the `IDLE0` task from ever executing. This triggers a watchdog timeout (5000ms), forcing the system to panic and crash.
+* **Refactoring Strategy**: Use an API to explicitly trigger a context switch:
+
+```c
+// GOOD PRACTICE: Deterministic Kernel Yielding
+while (1) {
+gpio_set_level(GPIO_NUM_2, 1);
+ESP_LOGI(TAG, "LED ON");
+// ✅ Moves app_main to the Blocked list; yields execution to the IDLE task
+vTaskDelay(pdMS_TO_TICKS(1000));
+
+gpio_set_level(GPIO_NUM_2, 0);
+ESP_LOGI(TAG, "LED OFF");
+vTaskDelay(pdMS_TO_TICKS(1000));
+}
+```
+
+---
+
+### Minimalist Verification Steps (Troubleshooting & Validation)
+
+After addressing the aforementioned pitfalls, follow these steps to verify system stability:
+
+1. **Long-Run Stability Test**:
+* Keep `idf.py monitor` running for at least 30 minutes.
+
+
+2. **Log-Based Verification**:
+* Ensure that no `task_wdt` or "Guru Meditation Error" messages appear in the UART output. Check the log timestamps to confirm that `LED ON` and `LED OFF` are output consistently every second; this indicates that the kernel scheduler has reached a stable, deterministic state.
 
