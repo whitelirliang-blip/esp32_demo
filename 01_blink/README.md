@@ -1,6 +1,6 @@
 # esp32-espidf-freertos-gpio-baseline
 
-A native C11 execution baseline on ESP32 transitioning from high-overhead Arduino/C++ wrappers to direct ESP-IDF drivers (`driver/gpio.h`). Implements non-blocking heartbeat task scheduling via FreeRTOS (`vTaskDelay`) to guarantee deterministic CPU yields and prevent Task Watchdog Timer (TWDT) starvation.
+A native C99/GNU99 execution baseline on ESP32 transitioning from high-overhead Arduino/C++ wrappers to direct ESP-IDF drivers (`driver/gpio.h`). Implements non-blocking heartbeat task scheduling via FreeRTOS (`vTaskDelay`) to guarantee deterministic CPU yields and prevent Task Watchdog Timer (TWDT) starvation.
 
 ## Key Features
 
@@ -15,14 +15,14 @@ A native C11 execution baseline on ESP32 transitioning from high-overhead Arduin
 | Component | Model / Specification | Interface / Protocol | Qty | Functional Role |
 | :--- | :--- | :--- | :--- | :--- |
 | Microcontroller | ESP32-WROOM-32 (Xtensa Dual-Core) | Onboard System Bus | 1 | Main execution node running FreeRTOS kernel |
-| Status Indicator | Onboard User LED | GPIO Digital Output | 1 | Heartbeat indicator toggled via app_main task |
-| Debug Interface | USB-to-UART Bridge (CH340) | UART0 Protocol | 1 | Physical log streaming interface for ESP_LOGI |
+| Status Indicator | Onboard User LED | GPIO Digital Output | 1 | Heartbeat indicator toggled via `app_main` task |
+| Debug Interface | USB-to-UART Bridge (CH340 / CP2102) | UART0 Protocol | 1 | Physical log streaming interface for `ESP_LOGI` |
 
 ### Pinout & Electrical Contract
 | ESP32 Pin | Peripheral / Module | Direction | Logic Mode / Protocol | Hardware Pull | Description & Operational Notes |
 | :--- | :--- | :--- | :--- | :--- | :--- |
-| `GPIO_NUM_2` | Onboard LED | Output | Push-Pull | Internal Pull-down | Active HIGH (1 = ON, 0 = OFF); Strapping Pin (must not be externally pulled HIGH during power-up) |
-| `GPIO_NUM_1` | Serial Console TX | Output | UART TX (115200 8N1) | None | Log streaming output channel mapped to UART0 via ESP_LOGI |
+| `GPIO_NUM_2` | Onboard LED | Output | Push-Pull (GPIO_MODE_OUTPUT) | Default Internal Pull-down | Active HIGH (1 = ON, 0 = OFF); Strapping Pin (must not be externally pulled HIGH during power-up) |
+| `GPIO_NUM_1` | Serial Console TX | Output | UART TX (115200 8N1) | None | Log streaming output channel mapped to UART0 via `ESP_LOGI` |
 | `GPIO_NUM_3` | Serial Console RX | Input | UART RX (115200 8N1) | None | System control & CLI input channel mapped to UART0 |
 
 ## System Design & Data Flow
@@ -56,6 +56,7 @@ A native C11 execution baseline on ESP32 transitioning from high-overhead Arduin
    |
    +--- Low Level  (0.0V) -> LED OFF <=========================> Logs: "BLINK: LED OFF"
         vTaskDelay(pdMS_TO_TICKS(1000)) -> Yield CPU to IDLE
+
 ```
 
 ### FreeRTOS Task Architecture & Memory Footprint
@@ -64,9 +65,9 @@ A native C11 execution baseline on ESP32 transitioning from high-overhead Arduin
 | --- | --- | --- | --- | --- |
 | `app_main` | `1` (Default) | `4096 Bytes` | `tskNO_AFFINITY` | Transitions to `Blocked` state during `vTaskDelay()`, allowing execution of background system tasks (e.g., `IDLE`, `Task WDT`). |
 
-## Software Stack & Toolchain 
+## Software Stack & Toolchain
 
-### Tiered Software Architecture 
+### Tiered Software Architecture
 
 ```text
 +-----------------------------------------------------------------------+
@@ -96,7 +97,7 @@ A native C11 execution baseline on ESP32 transitioning from high-overhead Arduin
 
 ```
 
-### Toolchain & Dependency Matrix 
+### Toolchain & Dependency Matrix
 
 | Component / Layer | Specification / Name | Version / Standard | Functional Purpose & Dependency Justification |
 | --- | --- | --- | --- |
@@ -108,7 +109,7 @@ A native C11 execution baseline on ESP32 transitioning from high-overhead Arduin
 | **RTOS Kernel** | FreeRTOS (Espressif Port) | `v10.4.3-LTS` | Preemptive multitasking, deterministic time-slicing, and TWDT feeding. |
 | **Flashing / Debug Tool** | `esptool.py` / `idf.py` | `v4.6+` | Serial flashing via USB-to-UART bridge at 460800 baud and UART monitor. |
 
-### 4.3 Target Build Specification 
+### Target Build Specification
 
 ```cmake
 # Root level CMakeLists.txt Specification
@@ -129,26 +130,25 @@ idf_component_register(
 
 ```
 
-### Verification Steps 
+### Verification Steps
+
 1. **Verify Toolchain Version Consistency**:
+
 ```bash
 idf.py --version
 
 ```
 
-
 * **Expected Output**: `ESP-IDF v5.1.2` (or the specific v5.x version in use).
 
-
 2. **Validate the Complete Build and Flash Workflow**:
+
 ```bash
 idf.py reconfigure fullclean build
 
 ```
 
-
 * **Success Criteria**: The build process completes with zero warnings, and the necessary flashable `.bin` firmware files (e.g., `bootloader.bin`, `partition-table.bin`, `app.bin`) are generated.
-
 
 ## Quick Start & Build Instructions
 
@@ -157,7 +157,7 @@ idf.py reconfigure fullclean build
 Before beginning the build process, ensure that your host development environment meets the following version requirements:
 
 | Tool / Dependency | Required Version | Verification Command | Expected Output |
-| :--- | :--- | :--- | :--- |
+| --- | --- | --- | --- |
 | **ESP-IDF** | `v5.1.2` (or `v5.x` compatible) | `idf.py --version` | `ESP-IDF v5.1.2` |
 | **CMake** | `^3.16.0` | `cmake --version` | `cmake version 3.16.x` or higher |
 | **Ninja** | `v1.10.0+` | `ninja --version` | `1.10.0` or higher |
@@ -168,7 +168,9 @@ Before beginning the build process, ensure that your host development environmen
 ### Step-by-Step Build & Deployment Workflow
 
 #### Step 1: Repository Ingestion
+
 Clone the target repository and switch to the main branch:
+
 ```bash
 git clone [https://github.com/whitelirliang-blip/esp32-espidf-freertos-gpio-baseline.git](https://github.com/whitelirliang-blip/esp32-espidf-freertos-gpio-baseline.git)
 cd esp32-espidf-freertos-gpio-baseline
@@ -220,8 +222,14 @@ idf.py -p /dev/ttyUSB0 -b 460800 flash monitor
 After launching `idf.py monitor`, observe the serial output and the onboard hardware to verify that the system is operating as expected:
 
 1. **BOOT Phase Assertions**:
-* **Expected Behavior**: The bootloader should display the system clock frequency (240MHz), the flash memory size (4MB), and the FreeRTOS startup sequence. 2. **Application-Layer Periodic Diagnostic Assertion**:
+* **Expected Behavior**: The bootloader should display the system clock frequency (240MHz), the flash memory size (4MB), and the FreeRTOS startup sequence.
+
+
+2. **Application-Layer Periodic Diagnostic Assertion**:
 * **Expected UART Log Output (115200 Baud 8N1)**:
+
+
+
 ```text
 I (314) main: Starting esp32-espidf-freertos-gpio-baseline...
 I (324) main: GPIO_NUM_2 initialized as Push-Pull Output.
@@ -231,39 +239,45 @@ I (3324) BLINK: LED ON
 
 ```
 
-
 * **Success Criteria**: The increment between consecutive log timestamps must be exactly `1000ms` (allowing for a kernel tick margin of error of $\pm 10\text{ms}$), and the onboard blue LED (connected to `GPIO_NUM_2`) must blink synchronously at a frequency of 1Hz.
-
 
 ## Engineering Challenges & Debugging
 
 ### Matrix of Intercepted Failure Modes
 
 | Hazard / Symptom | Root Cause (System/Kernel Level) | Mitigation & Fix Strategy | Structural Impact |
-| :--- | :--- | :--- | :--- |
-| **System Crash / Reset Loop**<br>`Task watchdog got triggered (TWDT)` | An infinite loop (`while(1)`) in `app_main` lacks a kernel-blocking API call, preventing the low-priority `IDLE` task from executing and, consequently, failing to "feed" (reset) the watchdog timer. | Use `vTaskDelay(pdMS_TO_TICKS(1000))` to explicitly yield CPU control, transitioning the task into the FreeRTOS `Blocked` state. | Ensures deterministic time-slice allocation by the scheduler; eliminates TWDT-triggered resets. |
-| **Boot Mode Corruption**<br>ESP32 hangs in the bootloader or outputs garbled text upon power-up | `GPIO_NUM_2` functions as a "strapping pin"; external circuitry or strong pull-up/pull-down interference during power-on reset causes the chip to enter an incorrect boot/programming mode. | Ensure any external LED is connected in series with a current-limiting resistor of $\ge 1\text{k}\Omega$; avoid forcing the pin to a high state during the boot sequence. Include a warning in the pinout specification. | Guarantees that the chip’s power-on boot logic consistently defaults to the intended SPI Flash startup mode. | |
-| **Garbage Characters in UART Log**<br>UART output contains garbled or nonsensical characters | Mismatch in baud rate configuration; or a conflict between the baud rate of the host's monitor port (115200 8N1) and the initial baud rate of the chip's bootloader (74880/115200). | Explicitly set `CONFIG_ESP_CONSOLE_UART_BAUDRATE=115200` in `sdkconfig`, and consistently specify `-b 115200` in the CLI. | Establish a reliable and deterministic physical-layer communication channel for diagnostics. |
+| --- | --- | --- | --- |
+| **System Crash / Reset Loop**<br>
+
+<br>`Task watchdog got triggered (TWDT)` | An infinite loop (`while(1)`) in `app_main` lacks a kernel-blocking API call, preventing the low-priority `IDLE` task from executing and, consequently, failing to "feed" (reset) the watchdog timer. | Use `vTaskDelay(pdMS_TO_TICKS(1000))` to explicitly yield CPU control, transitioning the task into the FreeRTOS `Blocked` state. | Ensures deterministic time-slice allocation by the scheduler; eliminates TWDT-triggered resets. |
+| **Boot Mode Corruption**<br>
+
+<br>ESP32 hangs in the bootloader or outputs garbled text upon power-up | `GPIO_NUM_2` functions as a "strapping pin"; external circuitry or strong pull-up/pull-down interference during power-on reset causes the chip to enter an incorrect boot/programming mode. | Ensure any external LED is connected in series with a current-limiting resistor of $\ge 1\text{k}\Omega$; avoid forcing the pin to a high state during the boot sequence. Include a warning in the pinout specification. | Guarantees that the chip’s power-on boot logic consistently defaults to the intended SPI Flash startup mode. |
+| **Garbage Characters in UART Log**<br>
+
+<br>UART output contains garbled or nonsensical characters | Mismatch in baud rate configuration; or a conflict between the baud rate of the host's monitor port (115200 8N1) and the initial baud rate of the chip's bootloader (74880/115200). | Explicitly set `CONFIG_ESP_CONSOLE_UART_BAUDRATE=115200` in `sdkconfig`, and consistently specify `-b 115200` in the CLI. | Establish a reliable and deterministic physical-layer communication channel for diagnostics. |
 
 ---
 
 ### Deep Dive: Task Watchdog Timer (TWDT) Starvation Analysis
 
 #### 1. Defective Implementation
-```c
-// BAD PRACTICE: CPU Starvation
-void app_main(void) {
-gpio_reset_pin(GPIO_NUM_2);
-gpio_set_direction(GPIO_NUM_2, GPIO_MODE_OUTPUT);
 
-while (1) {
-gpio_set_level(GPIO_NUM_2, 1);
-// ❌ DEADLY BUG: Busy-waiting loop locks CPU Core 0, starving the IDLE task
-for (volatile uint32_t i = 0; i < 10000000; i++);
-gpio_set_level(GPIO_NUM_2, 0);
-for (volatile uint32_t i = 0; i < 10000000; i++);
+```c
+// BAD PRACTICE: CPU Starvation & Non-deterministic Timing
+void app_main(void) {
+    gpio_reset_pin(GPIO_NUM_2);
+    gpio_set_direction(GPIO_NUM_2, GPIO_MODE_OUTPUT);
+
+    while (1) {
+        gpio_set_level(GPIO_NUM_2, 1);
+        // ❌ DEADLY BUG: Magic-number busy-waiting loop locks CPU Core 0, starving the IDLE task
+        for (volatile uint32_t i = 0; i < 10000000; i++);
+        gpio_set_level(GPIO_NUM_2, 0);
+        for (volatile uint32_t i = 0; i < 10000000; i++);
+    }
 }
-}
+
 ```
 
 #### 2. Crash Log Diagnostic
@@ -275,6 +289,7 @@ E (5320) task_wdt: Tasks currently running:
 E (5320) task_wdt: CPU 0: main
 E (5320) task_wdt: Aborting program.
 Guru Meditation Error: Core 0 panic'ed (Interrupt wdt timeout on CPU0).
+
 ```
 
 #### 3. Root Cause & Architectural Fix
@@ -285,15 +300,16 @@ Guru Meditation Error: Core 0 panic'ed (Interrupt wdt timeout on CPU0).
 ```c
 // GOOD PRACTICE: Deterministic Kernel Yielding
 while (1) {
-gpio_set_level(GPIO_NUM_2, 1);
-ESP_LOGI(TAG, "LED ON");
-// ✅ Moves app_main to the Blocked list; yields execution to the IDLE task
-vTaskDelay(pdMS_TO_TICKS(1000));
+    gpio_set_level(GPIO_NUM_2, 1);
+    ESP_LOGI(TAG, "LED ON");
+    // ✅ Moves app_main to the Blocked list; yields execution to the IDLE task
+    vTaskDelay(pdMS_TO_TICKS(1000));
 
-gpio_set_level(GPIO_NUM_2, 0);
-ESP_LOGI(TAG, "LED OFF");
-vTaskDelay(pdMS_TO_TICKS(1000));
+    gpio_set_level(GPIO_NUM_2, 0);
+    ESP_LOGI(TAG, "LED OFF");
+    vTaskDelay(pdMS_TO_TICKS(1000));
 }
+
 ```
 
 ---
@@ -310,11 +326,13 @@ After addressing the aforementioned pitfalls, follow these steps to verify syste
 * Ensure that no `task_wdt` or "Guru Meditation Error" messages appear in the UART output. Check the log timestamps to confirm that `LED ON` and `LED OFF` are output consistently every second; this indicates that the kernel scheduler has reached a stable, deterministic state.
 
 
-## 7. License & Author Information
 
-### 7.1 Software License & Open-Source Compliance
+## License & Author Information
 
-This project is licensed and distributed under the **MIT Open-Source License**. 
+### Software License & Open-Source Compliance
+
+This project is licensed and distributed under the **MIT Open-Source License**.
+
 ```text
 Copyright (c) 2026 Xiquan Liang 
 
@@ -352,8 +370,8 @@ Under the premise of complying with the MIT license, this project relies on and 
 ### Author Provenance & Maintainer Contact
 
 * **Lead Architect / Primary Author**: Xiquan Liang (Liang Xiquan)
-* **Academic/Professional Role**: Undergraduate Student in IoT Engineering (IoT Engineering)
-* **Target * **Focus**: Embedded Systems, Real-Time Operating Systems (RTOS), & Edge IoT Infrastructure
+* **Academic/Professional Role**: Undergraduate Student in IoT Engineering
+* **Focus**: Embedded Systems, Real-Time Operating Systems (RTOS), & Edge IoT Infrastructure
 * **Repository Context**: Baseline reference implementation for deterministic GPIO pin control and FreeRTOS execution contexts (`esp32-espidf-freertos-gpio-baseline`).
 
 #### Official Channels & Code Repositories
@@ -368,8 +386,10 @@ Under the premise of complying with the MIT license, this project relies on and 
 1. **License and Copyright Notice Consistency Check**:
 * Verify the presence of a standard `LICENSE` file in the root directory.
 * **Verification Command**:
+
 ```bash
 head -n 5 LICENSE
+
 ```
 
 * **Success Criteria**: The output must include the `Copyright (c) 2026 Xiquan Liang` statement and the MIT license header information.
