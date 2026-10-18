@@ -150,6 +150,90 @@ idf.py reconfigure fullclean build
 * **Success Criteria**: The build process completes with zero warnings, and the necessary flashable `.bin` firmware files (e.g., `bootloader.bin`, `partition-table.bin`, `app.bin`) are generated.
 
 
+## Quick Start & Build Instructions
 
+This section defines the project’s **minimalist reproducible build pipeline**. Adhering to the principle of "zero-configuration, out-of-the-box" functionality, it ensures that reviewers can perform compilation, firmware flashing, and serial diagnostics using only basic CLI commands. ---
+
+### System Prerequisites & Environment Setup
+
+Before beginning the build process, ensure that your host development environment meets the following version requirements:
+
+| Tool / Dependency | Required Version | Verification Command | Expected Output |
+| :--- | :--- | :--- | :--- |
+| **ESP-IDF** | `v5.1.2` (or `v5.x` compatible) | `idf.py --version` | `ESP-IDF v5.1.2` |
+| **CMake** | `^3.16.0` | `cmake --version` | `cmake version 3.16.x` or higher |
+| **Ninja** | `v1.10.0+` | `ninja --version` | `1.10.0` or higher |
+| **Python** | `3.8+` | `python --version` | `Python 3.x.x` |
+
+---
+
+### Step-by-Step Build & Deployment Workflow
+
+#### Step 1: Repository Ingestion
+Clone the target repository and switch to the main branch:
+```bash
+git clone [https://github.com/whitelirliang-blip/esp32-espidf-freertos-gpio-baseline.git](https://github.com/whitelirliang-blip/esp32-espidf-freertos-gpio-baseline.git)
+cd esp32-espidf-freertos-gpio-baseline
+
+```
+
+#### Step 2: Target Selection & Environment Export
+
+Load the ESP-IDF environment variables and explicitly set the target chip to the ESP32:
+
+```bash
+# Linux / WSL Environment Export
+. $HOME/esp/esp-idf/export.sh
+
+# Set Target Microcontroller (Generates a fresh sdkconfig)
+idf.py set-target esp32
+
+```
+
+#### Step 3: Clean Compilation & ELF Generation
+
+Clear the cache and trigger a full parallel build:
+
+```bash
+# Clean the artifact tree and trigger a build:
+idf.py fullclean
+idf.py build
+
+```
+
+> **Verification of Success**: Once compilation is complete, the `build/` directory must contain three core firmware files: `bootloader.bin`, `partition-table/partition-table.bin`, and the main application binary, `esp32-espidf-freertos-gpio-baseline.bin`.
+
+#### Step 4: Flashing & Real-time Console Diagnostics
+
+Connect your ESP32 development board (ensure the onboard CP2102/CH340 serial interface is detected), then execute the command to flash the firmware and launch the serial monitor:
+
+```bash
+# Replace /dev/ttyUSB0 (Linux) or COMx (Windows) with your actual port
+idf.py -p /dev/ttyUSB0 -b 460800 flash monitor
+
+```
+
+> **Pro-Tip**: To exit the `idf.py monitor` interface, use the keyboard shortcut `Ctrl + ]`.
+
+---
+
+### 5.3 Minimalist Verification Steps
+
+After launching `idf.py monitor`, observe the serial output and the onboard hardware to verify that the system is operating as expected:
+
+1. **BOOT Phase Assertions**:
+* **Expected Behavior**: The bootloader should display the system clock frequency (240MHz), the flash memory size (4MB), and the FreeRTOS startup sequence. 2. **Application-Layer Periodic Diagnostic Assertion**:
+* **Expected UART Log Output (115200 Baud 8N1)**:
+```text
+I (314) main: Starting esp32-espidf-freertos-gpio-baseline...
+I (324) main: GPIO_NUM_2 initialized as Push-Pull Output.
+I (1324) BLINK: LED ON
+I (2324) BLINK: LED OFF
+I (3324) BLINK: LED ON
+
+```
+
+
+* **Success Criteria**: The increment between consecutive log timestamps must be exactly `1000ms` (allowing for a kernel tick margin of error of $\pm 10\text{ms}$), and the onboard blue LED (connected to `GPIO_NUM_2`) must blink synchronously at a frequency of 1Hz.
 
 
