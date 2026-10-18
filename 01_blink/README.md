@@ -152,8 +152,6 @@ idf.py reconfigure fullclean build
 
 ## Quick Start & Build Instructions
 
-This section defines the project’s **minimalist reproducible build pipeline**. Adhering to the principle of "zero-configuration, out-of-the-box" functionality, it ensures that reviewers can perform compilation, firmware flashing, and serial diagnostics using only basic CLI commands. ---
-
 ### System Prerequisites & Environment Setup
 
 Before beginning the build process, ensure that your host development environment meets the following version requirements:
@@ -311,3 +309,67 @@ After addressing the aforementioned pitfalls, follow these steps to verify syste
 2. **Log-Based Verification**:
 * Ensure that no `task_wdt` or "Guru Meditation Error" messages appear in the UART output. Check the log timestamps to confirm that `LED ON` and `LED OFF` are output consistently every second; this indicates that the kernel scheduler has reached a stable, deterministic state.
 
+
+## 7. License & Author Information
+
+### 7.1 Software License & Open-Source Compliance
+
+This project is licensed and distributed under the **MIT Open-Source License**. 
+```text
+Copyright (c) 2026 Xiquan Liang 
+
+Permission is hereby granted, free of charge, to any person obtaining a copy
+of this software and associated documentation files (the "Software"), to deal
+in the Software without restriction, including without limitation the rights
+to use, copy, modify, merge, publish, distribute, sublicense, and/or sell
+copies of the Software, and to permit persons to whom the Software is
+furnished to do so, subject to the following conditions:
+
+The above copyright notice and this permission notice shall be included in all
+copies or substantial portions of the Software.
+
+THE SOFTWARE IS PROVIDED "AS IS", WITHOUT WARRANTY OF ANY KIND, EXPRESS OR
+IMPLIED, INCLUDING BUT NOT LIMITED TO THE WARRANTIES OF MERCHANTABILITY,
+FITNESS FOR A PARTICULAR PURPOSE AND NONINFRINGEMENT. IN NO EVENT SHALL THE
+AUTHORS OR COPYRIGHT HOLDERS BE LIABLE FOR ANY CLAIM, DAMAGES OR OTHER
+LIABILITY, WHETHER IN AN ACTION OF CONTRACT, TORT OR OTHERWISE, ARISING FROM,
+OUT OF OR IN CONNECTION WITH THE SOFTWARE OR THE USE OR OTHER DEALINGS IN THE
+SOFTWARE.
+
+```
+
+#### Third-Party Dependency & Component Attribution
+
+Under the premise of complying with the MIT license, this project relies on and integrates the following upstream open source components:
+
+| Component / Layer | Licensing Standard | Copyright Holder / Origin | Compliance Obligations & Notes |
+| --- | --- | --- | --- |
+| **ESP-IDF Framework** | Apache License 2.0 | Espressif Systems (Shanghai) Co., Ltd. | Includes Espressif HAL drivers and register mappings. |
+| **FreeRTOS Kernel** | MIT License | Amazon.com, Inc. or its affiliates | Espressif port of FreeRTOS kernel (`v10.4.3-LTS`). |
+
+---
+
+### Author Provenance & Maintainer Contact
+
+* **Lead Architect / Primary Author**: Xiquan Liang (Liang Xiquan)
+* **Academic/Professional Role**: Undergraduate Student in IoT Engineering (IoT Engineering)
+* **Target * **Focus**: Embedded Systems, Real-Time Operating Systems (RTOS), & Edge IoT Infrastructure
+* **Repository Context**: Baseline reference implementation for deterministic GPIO pin control and FreeRTOS execution contexts (`esp32-espidf-freertos-gpio-baseline`).
+
+#### Official Channels & Code Repositories
+
+* **GitHub Repository**: [`whitelirliang-blip/esp32_demo`](https://github.com/whitelirliang-blip/esp32_demo)
+* **Issue Tracker**: Report architectural bugs or API compliance issues via GitHub Issues.
+
+---
+
+### Minimalist Verification Steps (Compliance and Metadata Validation)
+
+1. **License and Copyright Notice Consistency Check**:
+* Verify the presence of a standard `LICENSE` file in the root directory.
+* **Verification Command**:
+```bash
+head -n 5 LICENSE
+```
+
+* **Success Criteria**: The output must include the `Copyright (c) 2026 Xiquan Liang` statement and the MIT license header information.
