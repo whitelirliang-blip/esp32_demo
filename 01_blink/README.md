@@ -77,6 +77,12 @@ A native C99/GNU99 execution baseline on ESP32 transitioning from high-overhead 
                                     |
                                     v
 +-----------------------------------------------------------------------+
+|  Target Hardware Platform                                             |
+|  - ESP32 Dual-Core Xtensa LX6 (GPIO_NUM_2, UART0)                     |
++-----------------------------------------------------------------------+
+                                    |
+                                    v
++-----------------------------------------------------------------------+
 |  Operating System & Core Services                                     |
 |  - FreeRTOS (Preemptive Tick-based Scheduler, vTaskDelay, TWDT)       |
 |  - Espressif Logging System (esp_log.h - Thread-safe UART Streaming)  |
@@ -88,12 +94,7 @@ A native C99/GNU99 execution baseline on ESP32 transitioning from high-overhead 
 |  - ESP-IDF HAL Driver (driver/gpio.h - Direct Register Operations)    |
 |  - ROM Driver Interface (esp_rom_gpio.h)                              |
 +-----------------------------------------------------------------------+
-                                    |
-                                    v
-+-----------------------------------------------------------------------+
-|  Target Hardware Platform                                             |
-|  - ESP32 Dual-Core Xtensa LX6 (GPIO_NUM_2, UART0)                     |
-+-----------------------------------------------------------------------+
+
 
 ```
 
