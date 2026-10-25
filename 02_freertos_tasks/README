@@ -1,0 +1,187 @@
+# ESP32 FreeRTOS Multi-Tasking Architecture & Modern Build System Migration
+
+An industrial-grade, multi-tasking ESP32 firmware prototype built on ESP-IDF v6.1, demonstrating deterministic task scheduling, hardware stack overflow protections, and modern CMake-based toolchain decoupling.
+
+## Key Features
+
+* **v6.1 SDK Engine Decoupling**: Replaced legacy script wrappers with direct Python venv execution (`python %IDF_PATH%\tools\idf.py`), eliminating host OS file association hijacking (`Node.js/JS` collisions) and enabling reproducible CMake builds.
+* **Deterministic Multi-Task Scheduling**: Implemented isolated FreeRTOS tasks with explicit priority mapping (`tskIDLE_PRIORITY + N`) and static memory allocations, reinforced by Method 2 stack overflow canary checks (`CONFIG_FREERTOS_CHECK_STACK_OVERFLOW_CANARY=y`).
+* **Structured R&D Diagnostics**: Standardized real-time telemetry using thread-safe `ESP_LOGX` macros, synchronized Git submodules (`mbedtls`, `lwip`), and generated `compile_commands.json` for zero-warning VS Code IntelliSense validation.
+
+
+## Hardware Architecture & Pin Mapping
+
+### 1. Pin Mapping & Electrical Specification Matrix
+
+| Signal / Function | ESP32 Physical Pin | Electrical Characteristics | Engineering Rationale & Constraints |
+| --- | --- | --- | --- |
+| **UART0 TX** (`U0TXD`) | `GPIO 1` (Default) | 3.3V TTL, Push-Pull, Max 40mA | Dedicated high-speed serial channel for real-time `ESP_LOGI` telemetry and system monitoring. |
+| **UART0 RX** (`U0RXD`) | `GPIO 3` (Default) | 3.3V TTL, Internal Pull-Up Enabled | Host console command input and runtime debugging interface. |
+| **Status LED** (`GPIO_HEARTBEAT`) | `GPIO 2` (Onboard) | Push-Pull, Max 12mA Sink/Source | Visual indicator driven by low-priority FreeRTOS background task to verify scheduler health. |
+| **User Input** (`BTN_TRIGGER`) | `GPIO 0` (BOOT Button) | Active-Low, Internal Pull-Up | Manual event trigger for FreeRTOS queue injection or task state toggle; requires software debouncing. |
+
+
+### 2. Core Architectural Logic & GPIO Configuration
+
+To adhere to ESP-IDF v6.1 driver standards, all GPIO allocations are initialized dynamically via the modern `gpio_config_t` structure, completely avoiding legacy unverified macros:
+
+* **Input Configuration Policy**: Pins configured as inputs (such as the BOOT button) must explicitly enable internal pull-up resistors to prevent floating voltage states and spurious high-frequency interrupts.
+* **Output Configuration Policy**: Push-pull outputs enforce clean signal transitions with controlled slew rates to minimize electromagnetic interference (EMI) on adjacent analog/digital traces.
+
+
+## System Design & Data Flow
+### 1. Task Hierarchy & Priority Mapping Matrix
+
+| Task Name (`TaskHandle_t`) | Priority Level | Stack Size (Bytes) | Core Affinity | Core Responsibilities & Execution Loop |
+| --- | --- | --- | --- | --- |
+| **`vTaskHeartbeat`** | `tskIDLE_PRIORITY + 1` (Low) | 2048 | Core 0 | Periodic system health toggle (GPIO 2), feeds software watchdog timer (WDT). |
+| **`vTaskWorker`** | `tskIDLE_PRIORITY + 2` (Medium) | 4096 | Core 1 | Blocks on a FreeRTOS Queue for incoming telemetry/events, processes data, and formats `ESP_LOGI` payloads. |
+
+---
+
+### 2. Inter-Task Communication & Data Flow Sequence
+
+Data exchange between isolated tasks is strictly mediated through thread-safe FreeRTOS primitives to eliminate race conditions and shared-memory corruption.
+
+```
+[ ISR / Trigger Source ] 
+         │ (Queue Send / Event)
+         ▼
+[ FreeRTOS Queue (`xQueueHandle`) ] ────── (Thread-Safe Message Payload)
+         │
+         ▼
+[ `vTaskWorker` (Core 1) ] ── (Processing) ──> [ `ESP_LOGI` Telemetry / UART0 ]
+
+```
+
+* **Data Flow Step 1 (Ingestion)**: External events (such as GPIO interrupts or background sensor polls) push structured payloads into a bounded FreeRTOS queue using `xQueueSendToBack()`.
+* **Data Flow Step 2 (Processing)**: `vTaskWorker` remains in the `Blocked` state (consuming $0\%$ CPU cycles) via `xQueueReceive()` until a message arrives.
+* **Data Flow Step 3 (Reporting)**: Upon unblocking, the worker processes the payload and streams formatted diagnostic data out through UART0 via thread-safe logging macros.
+
+
+## Software Stack & Toolchain
+### 1. Software Stack Component Matrix
+
+| Layer / Subsystem | Technology / Tool | Version / Specification | Engineering Role & Purpose |
+| --- | --- | --- | --- |
+| **Host Environment** | Windows PowerShell / WSL2 | PowerShell 7+ / Ubuntu 22.04 LTS | Host development shell enforcing strict environment isolation. |
+| **SDK Framework** | **ESP-IDF** | `v6.1` (Single Source of Truth) | Official Espressif IoT Development Framework providing hardware abstraction and drivers. |
+| **Real-Time Kernel** | **FreeRTOS** | SMP-aware kernel (integrated) | Deterministic, preemptive multi-tasking scheduler with stack overflow protection. |
+| **Compiler Toolchain** | **Xtensa GCC** | `15.2.0` (`xtensa-esp-elf-gcc`) | High-performance cross-compilation toolchain optimized for Xtensa instruction sets. |
+| **Build System** | **CMake & Ninja** | CMake 3.25+ / Ninja 1.11+ | Out-of-tree meta-build system and lightning-fast parallel binary generator. |
+| **Runtime Manager** | **Python venv** | Python `3.10.0` (Isolated) | Dedicated virtual environment managing Kconfig parsers and build wrappers (`rich_click`). |
+
+---
+
+### 2. Toolchain Execution & Reproducibility Policy
+
+To bypass Windows system-level file association conflicts (such as `.py` extensions being hijacked by Node.js or global Python installations), all build, configuration, and flashing operations must adhere to the **Explicit Invocation Directive**:
+
+* **Forbidden Pattern**: Executing bare `idf.py` commands, which relies on unanchored system paths and fragile shell aliases.
+* **Mandatory Pattern**: Invoking the v6.1 virtual environment python binary explicitly with the framework path variable.
+
+## Quick Start & Build Instructions
+
+### 1. Standardized Execution Workflow
+
+| Step | Action / Phase | Target Command (`PowerShell 7+`) | Engineering Rationale & Verification |
+| --- | --- | --- | --- |
+| **1** | **Environment Initialization** | `cd C:\Espressif\frameworks\esp-idf-v6.1`<br>
+
+<br>`.\export.ps1` | Loads v6.1 environment variables and mounts the isolated Python virtual environment into the active shell session. |
+| **2** | **Submodule Verification** | `git submodule update --init --recursive` | Ensures all core dependencies (e.g., `mbedtls`, `lwip`, FreeRTOS components) are fully synchronized and up-to-date. |
+| **3** | **Project Navigation** | `cd D:\vs code\esp32_demo\02_freertos_tasks` | Switches context from the SDK framework root to the isolated application project directory. |
+| **4** | **Clean & Reconfigure** | `python "$env:IDF_PATH\tools\idf.py" fullclean`<br>
+
+<br>`python "$env:IDF_PATH\tools\idf.py" reconfigure` | Wipes legacy build artifacts and generates a fresh `compile_commands.json` database for zero-warning VS Code IntelliSense. |
+| **5** | **Build, Flash & Monitor** | `python "$env:IDF_PATH\tools\idf.py" build flash monitor` | Compiles source files using Xtensa GCC 15.2.0, flashes binaries over UART, and opens real-time telemetry output. |
+
+---
+
+### 2. Post-Execution Exit & Debugging Protocol
+
+* **Terminal Control**: While the UART monitor is active, press **`Ctrl + ]`** to safely terminate the session and return to the PowerShell prompt.
+* **Log Verification**: Confirm that `vTaskHeartbeat` and `vTaskWorker` are streaming structured `ESP_LOGI` telemetry without triggering any FreeRTOS stack overflow canary warnings or Guru Meditation errors.
+
+
+## Engineering Challenges & Debugging
+### Engineering Challenges & Debugging Matrix
+
+| ID | Challenge Category | Symptom / Error Log | Root Cause Analysis | DIN-Compliant Resolution |
+| --- | --- | --- | --- | --- |
+| **C1** | **IDE Static Analysis** | Editor warnings: `cannot open source file "stdio.h"` (`C/C++ (1696)`) | VS Code's Language Server Protocol (LSP) failed to locate cross-compiler headers due to missing indexing data. | Run `idf.py reconfigure` to generate and load the `compile_commands.json` database. |
+| **C2** | **SDK Component Resolution** | Compilation error: `The component 'esp_log' could not be found` | Local framework directories were empty or unpopulated, missing core kernel and driver modules. | Verify and deploy the complete ESP-IDF v6.1 framework source tree. |
+| **C3** | **Python Environment Drift** | Fatal runtime exception: `No module named 'rich_click'` | The active shell session was not bound to the v6.1 private virtual environment, or wrapper scripts hit global Python. | Explicitly invoke the venv Python binary or run `install.ps1` to re-sync packages. |
+| **C4** | **Working Directory Offset** | CMake abort: `Current directory ... is not buildable` | The terminal context was incorrectly anchored at the SDK root instead of the user application project directory. | Relocate terminal working directory to `02_freertos_tasks`. |
+| **C5** | **Submodule Desynchronization** | CMake warning: `Git submodule ... is out of date` (mbedtls missing) | Initial repository cloning omitted recursive fetching, leaving third-party libraries (lwip, mbedtls) empty. | Execute `git submodule update --init --recursive` inside the framework root. |
+| **C6** | **Host File Association Hijacking** | `SyntaxError: Invalid or unexpected token` with Node.js stack trace | Windows OS file registry associated `.py` extensions with `node.exe` instead of the Python interpreter. | Eliminate bare script calls; enforce explicit interpreter prefix (`python tools/idf.py`). |
+| **C7** | **Shell Syntax Divergence** | File not found error referencing literal `%IDF_PATH%` | Mixing CMD environmental syntax (`%VAR%`) inside a PowerShell context (`$env:VAR`). | Strictly enforce PowerShell-compliant variable expansion (`$env:IDF_PATH`). |
+
+
+
+## License & Author Information
+
+### Software License & Open-Source Compliance
+
+This project is licensed and distributed under the **MIT Open-Source License**.
+
+```text
+Copyright (c) 2026 Xiquan Liang 
+
+Permission is hereby granted, free of charge, to any person obtaining a copy
+of this software and associated documentation files (the "Software"), to deal
+in the Software without restriction, including without limitation the rights
+to use, copy, modify, merge, publish, distribute, sublicense, and/or sell
+copies of the Software, and to permit persons to whom the Software is
+furnished to do so, subject to the following conditions:
+
+The above copyright notice and this permission notice shall be included in all
+copies or substantial portions of the Software.
+
+THE SOFTWARE IS PROVIDED "AS IS", WITHOUT WARRANTY OF ANY KIND, EXPRESS OR
+IMPLIED, INCLUDING BUT NOT LIMITED TO THE WARRANTIES OF MERCHANTABILITY,
+FITNESS FOR A PARTICULAR PURPOSE AND NONINFRINGEMENT. IN NO EVENT SHALL THE
+AUTHORS OR COPYRIGHT HOLDERS BE LIABLE FOR ANY CLAIM, DAMAGES OR OTHER
+LIABILITY, WHETHER IN AN ACTION OF CONTRACT, TORT OR OTHERWISE, ARISING FROM,
+OUT OF OR IN CONNECTION WITH THE SOFTWARE OR THE USE OR OTHER DEALINGS IN THE
+SOFTWARE.
+
+```
+
+#### Third-Party Dependency & Component Attribution
+
+Under the premise of complying with the MIT license, this project relies on and integrates the following upstream open source components:
+
+| Component / Layer | Licensing Standard | Copyright Holder / Origin | Compliance Obligations & Notes |
+| --- | --- | --- | --- |
+| **ESP-IDF Framework** | Apache License 2.0 | Espressif Systems (Shanghai) Co., Ltd. | Includes Espressif HAL drivers, register mappings, and build tools. |
+| **FreeRTOS Kernel** | MIT License | Amazon.com, Inc. or its affiliates | Deterministic preemptive kernel port (`v10.4.3-LTS` integrated in ESP-IDF v6.1). |
+
+---
+
+### Author Provenance & Maintainer Contact
+
+* **Lead Architect / Primary Author**: Xiquan Liang (梁锡泉)
+* **Academic/Professional Role**: Undergraduate Student in IoT Engineering
+* **Focus**: Embedded Systems, Real-Time Operating Systems (RTOS), & Edge IoT Infrastructure
+* **Repository Context**: Baseline reference implementation for deterministic FreeRTOS multi-tasking architectures, stack overflow protection, and modern CMake toolchain migration (`esp32-espidf-freertos-tasks-baseline`).
+
+#### Official Channels & Code Repositories
+
+* **GitHub Repository**: [`whitelirliang-blip/esp32_demo`](https://github.com/whitelirliang-blip/esp32_demo)
+* **Issue Tracker**: Report architectural bugs or API compliance issues via GitHub Issues.
+
+---
+
+### Minimalist Verification Steps (Compliance and Metadata Validation)
+
+1. **License and Copyright Notice Consistency Check**:
+* Verify the presence of a standard `LICENSE` file in the root repository directory.
+* **Verification Command**:
+```bash
+head -n 5 LICENSE
+
+```
+
+
+* **Success Criteria**: The output must include the `Copyright (c) 2026 Xiquan Liang` statement and the MIT license header information.
