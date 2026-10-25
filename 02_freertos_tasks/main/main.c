@@ -1,7 +1,7 @@
 /*
-* SPDX-FileCopyrightText: 2026 Xiquan Liang
-* SPDX-License-Identifier: MIT
-*/
+ * SPDX-FileCopyrightText: 2026 Xiquan Liang
+ * SPDX-License-Identifier: MIT
+ */
 
 #include <stdio.h>
 #include "freertos/FreeRTOS.h"
