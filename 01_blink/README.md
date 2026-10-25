@@ -1,3 +1,6 @@
+# SPDX-FileCopyrightText: 2026 Xiquan Liang
+# SPDX-License-Identifier: MIT
+
 # esp32-espidf-freertos-gpio-baseline
 
 A native C99/GNU99 execution baseline on ESP32 transitioning from high-overhead Arduino/C++ wrappers to direct ESP-IDF drivers (`driver/gpio.h`). Implements non-blocking heartbeat task scheduling via FreeRTOS (`vTaskDelay`) to guarantee deterministic CPU yields and prevent Task Watchdog Timer (TWDT) starvation.

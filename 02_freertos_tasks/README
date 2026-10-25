@@ -1,3 +1,6 @@
+# SPDX-FileCopyrightText: 2026 Xiquan Liang
+# SPDX-License-Identifier: MIT
+
 # ESP32 FreeRTOS Multi-Tasking Architecture & Modern Build System Migration
 
 An industrial-grade, multi-tasking ESP32 firmware prototype built on ESP-IDF v6.1, demonstrating deterministic task scheduling, hardware stack overflow protections, and modern CMake-based toolchain decoupling.
