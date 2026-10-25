@@ -1,2 +1,5 @@
+# SPDX-FileCopyrightText: 2026 Xiquan Liang
+# SPDX-License-Identifier: MIT
+
 CompileFlags:
-    Remove: [-f*, -m*]
+  Remove: [-f*, -m*]

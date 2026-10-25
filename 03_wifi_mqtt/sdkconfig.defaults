@@ -1,0 +1,21 @@
+# SPDX-FileCopyrightText: 2026 Xiquan Liang
+# SPDX-License-Identifier: MIT
+
+# ==========================================
+# ESP-IDF v6.1 Industrial SDK Defaults
+# ==========================================
+
+# 1. FreeRTOS Kernel Optimization
+CONFIG_FREERTOS_HZ=1000
+CONFIG_FREERTOS_CHECK_STACK_OVERFLOW_CANARY=y
+
+# 2. Network Credentials (Wi-Fi STA)
+CONFIG_ESP_WIFI_SSID="Your_Target_SSID"
+CONFIG_ESP_WIFI_PASSWORD="Your_Secure_Password"
+
+# 3. Cloud MQTT Broker URI Specification
+CONFIG_ESP_MQTT_BROKER_URI="mqtt://broker.hivemq.com:1883"
+
+# 4. Partition Table & Flash Optimization
+CONFIG_PARTITION_TABLE_SINGLE_APP=y
+CONFIG_ESPTOOLPY_FLASHSIZE_4MB=y
