@@ -1,0 +1,167 @@
+# ESP-MQTT idf-ci Configuration
+#
+# Requires idf-ci >= 1.2.2, and >= 1.3.0 for the idf-latest coverage job.
+# Keep the default generated jobs; mqtt-only behavior is injected through
+# the build template and test pipeline hooks.
+# idf-dynamic-pipeline@main sets build and test job_name_suffix from job-suffix.
+
+[gitlab.artifacts.native]
+build_job_filepatterns = [
+    "**/build*/partition_table/*.bin",
+    "**/build*/bootloader/*.bin",
+    "**/build*/config/sdkconfig.json",
+    "**/build*/*.bin",
+    "**/build*/flasher_args.json",
+    "**/build*/**/*.gcno",
+    "**/build.log",
+]
+
+test_job_filepatterns = [
+    "**/test_logs",
+    "**/XUNIT_RESULT_*.xml",
+    "**/build*/**/*.gcno",
+    "**/build*/**/*.gcda",
+    "gcov_shards/",
+]
+
+[gitlab.build_pipeline]
+runs_per_job = 15
+# generate_test_child_pipeline extends this template and overrides its script.
+job_template_jinja = """
+{{ settings.gitlab.build_pipeline.job_template_name }}:
+  stage: "{{ settings.gitlab.build_pipeline.job_stage }}"
+  tags: {{ settings.gitlab.build_pipeline.job_tags }}
+  image: "{{ settings.gitlab.build_pipeline.job_image }}"
+  timeout: "1h"
+{% if settings.gitlab.build_pipeline.job_name_suffix != ":idf-latest" %}
+  variables:
+    MQTT_CONFORMANCE_ENABLED: "0"
+{% endif %}
+  artifacts:
+    paths:
+    {%- for path in settings.gitlab.artifacts.native.build_job_filepatterns %}
+      - "{{ path }}"
+    {%- endfor %}
+    expire_in: "1 week"
+    when: "always"
+  before_script:
+    - CONSTRAINT_FILE="$(ls -1 ${IDF_TOOLS_PATH}/espidf.constraints.v*.txt 2>/dev/null | tail -1)"
+    - test -f "${CONSTRAINT_FILE}"
+{% if settings.gitlab.build_pipeline.job_name_suffix == ":idf-latest" %}
+    - pip install -U 'idf-ci>=1.3.0,<2' -c "${CONSTRAINT_FILE}"
+{% else %}
+    - pip install -U 'idf-ci>=1.2.2,<2' -c "${CONSTRAINT_FILE}"
+{% endif %}
+  script: |
+    set -euo pipefail
+    ORIG_DIR="${CI_PROJECT_DIR:-$(pwd)}"
+    cd "${ORIG_DIR}"
+    echo "Original dir: $(pwd)"
+    rm -rf mqtt
+    git worktree add --force mqtt HEAD || (echo "Worktree failed; using local clone" && git clone --local --no-hardlinks . mqtt)
+    git worktree list || true
+    cd mqtt
+    echo "Build dir: $(pwd)"
+    idf-ci build run --parallel-count ${CI_NODE_TOTAL:-1} --parallel-index ${CI_NODE_INDEX:-1}
+    cd "${ORIG_DIR}"
+    echo "Moving build* dirs back to repo root..."
+    find mqtt -type d -name 'build_esp32_*' -print0 | while IFS= read -r -d '' d; do \
+      rel="${d#mqtt/}"; \
+      dest="${rel}"; \
+      mkdir -p "$(dirname "${dest}")"; \
+      rm -rf "${dest}"; \
+      mv "$d" "${dest}"; \
+    done
+    git worktree remove -f mqtt || rm -rf mqtt
+"""
+
+[gitlab.test_pipeline]
+job_before_script_extra = [
+  """'OPENOCD_BIN="$(find "${IDF_TOOLS_PATH:-${HOME}/.espressif}/tools/openocd-esp32" -type f -path "*/bin/openocd" -print -quit 2>/dev/null || true)"; if [ -n "${OPENOCD_BIN}" ] && [ -x "${OPENOCD_BIN}" ]; then export PATH="$(dirname "${OPENOCD_BIN}"):${PATH}"; export OPENOCD_SCRIPTS="$(dirname "$(dirname "${OPENOCD_BIN}")")/share/openocd/scripts"; test -d "${OPENOCD_SCRIPTS}"; openocd --version; fi'""",
+]
+pre_yaml_jinja = """
+variables:
+  GIT_SUBMODULE_STRATEGY: recursive
+default:
+  after_script:
+    - |
+      shard="gcov_shards/${CI_NODE_INDEX:-${CI_JOB_ID}}"
+      mkdir -p "${shard}"
+      if [ -d test/apps/mqtt_conformance ]; then
+        find test/apps/mqtt_conformance -name '*.gcda' -print0 2>/dev/null |
+        while IFS= read -r -d '' f; do
+          rel="${f#./}"
+          dest="${shard}/${rel}"
+          mkdir -p "$(dirname "${dest}")"
+          cp "${f}" "${dest}"
+        done
+      fi
+"""
+extra_jobs_jinja = """
+{% if settings.gitlab.test_pipeline.job_name_suffix == ":idf-latest" %}
+mqtt_conformance_coverage_report{{ settings.gitlab.test_pipeline.job_name_suffix }}:
+  stage: "{{ settings.gitlab.test_pipeline.job_stage }}"
+  image: "{{ settings.gitlab.build_pipeline.job_image }}"
+  tags: [build]
+  needs:
+    - job: "esp32 - eth_ip101{{ settings.gitlab.test_pipeline.job_name_suffix }}"
+      artifacts: true
+  after_script: []
+  before_script:
+    - pip install -U gcovr
+  coverage: '/^lines:\\s+(\\d+\\.\\d+)%/'
+  artifacts:
+    paths:
+      - "test/apps/mqtt_conformance/build_esp32_default/coverage_report"
+    expire_in: "1 week"
+    when: "always"
+    reports:
+      coverage_report:
+        coverage_format: cobertura
+        path: test/apps/mqtt_conformance/build_esp32_default/coverage_report/coverage.xml
+  script: |
+    {%- raw %}
+    set -euo pipefail
+    report_dir="test/apps/mqtt_conformance/build_esp32_default/coverage_report"
+    build_dir="test/apps/mqtt_conformance/build_esp32_default"
+    mkdir -p "${report_dir}/html"
+    gcovr_filters=(
+      --filter="${CI_PROJECT_DIR}/mqtt_client.c"
+      --filter="${CI_PROJECT_DIR}/mqtt5_client.c"
+      --filter="${CI_PROJECT_DIR}/lib/mqtt_msg/mqtt_msg.c"
+      --filter="${CI_PROJECT_DIR}/lib/mqtt_msg/mqtt5_msg.c"
+      --filter="${CI_PROJECT_DIR}/lib/platform.c"
+    )
+    shopt -s nullglob
+    shards=(gcov_shards/*)
+    gcovr_search=(--object-directory="${build_dir}" --exclude-directories=gcov_shards)
+    if [ "${#shards[@]}" -eq 0 ]; then
+      gcovr -r . --gcov-executable xtensa-esp32-elf-gcov "${gcovr_search[@]}" "${gcovr_filters[@]}" --xml="${report_dir}/coverage.xml" --html-details="${report_dir}/html/index.html" --print-summary --fail-under-line 50
+    else
+      traces=()
+      i=0
+      for s in "${shards[@]}"; do
+        gcda_count="$(find "${s}" -name '*.gcda' | wc -l)"
+        if [ "${gcda_count}" -eq 0 ]; then
+          continue
+        fi
+        find "${build_dir}" -name '*.gcda' -delete
+        while IFS= read -r -d '' f; do
+          rel="${f#${s}/}"
+          mkdir -p "$(dirname "${rel}")"
+          cp "${f}" "${rel}"
+        done < <(find "${s}" -name '*.gcda' -print0)
+        json="${report_dir}/shard_${i}.json"
+        gcovr -r . --gcov-executable xtensa-esp32-elf-gcov "${gcovr_search[@]}" "${gcovr_filters[@]}" --json="${json}"
+        traces+=(--add-tracefile "${json}")
+        i=$((i + 1))
+      done
+      if [ "${#traces[@]}" -eq 0 ]; then
+        echo "No per-shard .gcda found under gcov_shards/" >&2
+        exit 1
+      fi
+      gcovr "${traces[@]}" --xml="${report_dir}/coverage.xml" --html-details="${report_dir}/html/index.html" --print-summary --fail-under-line 50
+    fi
+    {%- endraw %}
+{% endif %}
+"""
