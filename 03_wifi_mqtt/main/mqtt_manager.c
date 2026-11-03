@@ -24,7 +24,7 @@ static void mqtt_event_handler(void *handler_args, esp_event_base_t base, int32_
         case MQTT_EVENT_CONNECTED:
             ESP_LOGI(TAG, "MQTT_EVENT_CONNECTED to broker at %s", CONFIG_ESP_MQTT_BROKER_URI);
             
-            // 建立链路后自动订阅下行控制主题
+            // Automatically subscribe to the downlink control topic after the link is established
             int sub_id = esp_mqtt_client_subscribe(client, "esp32/control", 0);
             if (sub_id < 0) {
                 ESP_LOGE(TAG, "Failed to subscribe to control topic");
@@ -32,7 +32,7 @@ static void mqtt_event_handler(void *handler_args, esp_event_base_t base, int32_
                 ESP_LOGI(TAG, "Successfully subscribed to 'esp32/control', msg_id=%d", sub_id);
             }
             
-            // 上报初始化遥测帧
+            // Report initialization telemetry frame
             esp_mqtt_client_publish(client, "sensor/telemetry", "{\"status\":\"online\"}", 0, 1, 0);
             break;
 
@@ -41,7 +41,7 @@ static void mqtt_event_handler(void *handler_args, esp_event_base_t base, int32_
             break;
 
         case MQTT_EVENT_DATA:
-            // 安全处理下行字节流（注意：event->data 不以 \0 结尾）
+            // Safely process the inbound byte stream (note: event->data is not null-terminated)
             ESP_LOGI(TAG, "MQTT_EVENT_DATA received on topic %.*s", event->topic_len, event->topic);
             ESP_LOGI(TAG, "Payload: %.*s", event->data_len, event->data);
             break;
