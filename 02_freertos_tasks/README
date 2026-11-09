@@ -24,13 +24,53 @@ An industrial-grade, multi-tasking ESP32 firmware prototype built on ESP-IDF v6.
 | **User Input** (`BTN_TRIGGER`) | `GPIO 0` (BOOT Button) | Active-Low, Internal Pull-Up | Manual event trigger for FreeRTOS queue injection or task state toggle; requires software debouncing. |
 
 
-### 2. Core Architectural Logic & GPIO Configuration
-
-To adhere to ESP-IDF v6.1 driver standards, all GPIO allocations are initialized dynamically via the modern `gpio_config_t` structure, completely avoiding legacy unverified macros:
-
-* **Input Configuration Policy**: Pins configured as inputs (such as the BOOT button) must explicitly enable internal pull-up resistors to prevent floating voltage states and spurious high-frequency interrupts.
-* **Output Configuration Policy**: Push-pull outputs enforce clean signal transitions with controlled slew rates to minimize electromagnetic interference (EMI) on adjacent analog/digital traces.
-
+### 2.System Topology & Hardware Architecture
+               +-------------------------------------------------+
+               |              ESP32 Bootloader                   |
+               +-------------------------------------------------+
+                                       |
+                                       v
+               +-------------------------------------------------+
+               |             app_main()                          |
+               |  (Initialization / Task Creation / Queue Setup) |
+               +-------------------------------------------------+
+                        |                               |
+                        | (xTaskCreatePinnedToCore)     | (xQueueCreate)
+                        v                               v
+       +---------------------------------+    +-------------------------------+
+       |   vTaskHeartbeat (Core 0)       |    |  FreeRTOS Queue               |
+       |   Priority: tskIDLE_PRIORITY+1  |    |  (xQueueHandle, bounded)      |
+       |   Stack: 2048 Bytes             |    |  Thread-safe message payload  |
+       +---------------------------------+    +-------------------------------+
+                        |                               ^
+                        | (GPIO toggle)                 | (xQueueSendToBack)
+                        v                               |
+       +---------------------------------+              |
+       |   driver/gpio HAL Layer         |              |
+       |   (gpio_config_t dynamic init)  |              |
+       +---------------------------------+              |
+                        |                               |
+                        v                               |
+             [ GPIO_NUM_2 (Status LED) ]                |
+             (Push-Pull, Heartbeat toggle)              |
+                                                        |
+       +---------------------------------+              |
+       |   vTaskWorker (Core 1)          |              |
+       |   Priority: tskIDLE_PRIORITY+2  |--------------+
+       |   Stack: 4096 Bytes             |  (xQueueReceive — Blocked,
+       |   State: Blocked (0% CPU)       |   consumes 0% CPU until msg)
+       +---------------------------------+
+                        |
+                        | (Processing / Formatting)
+                        v
+       +---------------------------------+
+       |   ESP_LOGX (Thread-safe)        |
+       |   esp_log System                |
+       +---------------------------------+
+                        |
+                        v
+             [ UART0 Console (GPIO 1 / GPIO 3) ]
+             (115200 Baud, ESP_LOGI telemetry)
 
 ## System Design & Data Flow
 ### 1. Task Hierarchy & Priority Mapping Matrix
