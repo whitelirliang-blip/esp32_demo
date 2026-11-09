@@ -1,0 +1,30 @@
+# ESP32-S3 Multi-Stage IoT Engineering Portfolio & System Architecture
+
+## Repository Directory Structure & Global Index
+
+| Stage Directory | Project Name | Core Technology / Protocol | Status | Documentation Index |
+| :--- | :--- | :--- | :--- | :--- |
+| [`01_blink/`](./01_blink/) | Bare-Metal GPIO & Timer | GPIO Driver, FreeRTOS Delay | ✅ Completed | [README](./01_blink/README.md) |
+| [`02_freertos_tasks/`](./02_freertos_tasks/) | Multi-Tasking & IPC | FreeRTOS Queues, Task Synchronization | ✅ Completed | [README](./02_freertos_tasks/README.md) |
+| [`03_wifi_mqtt/`](./03_wifi_mqtt/) | Local MQTT Telemetry Loop | ESP-IDF Wi-Fi STA, Eclipse Mosquitto (Docker) | ✅ Completed | [README](./03_wifi_mqtt/README.md) |
+
+---
+
+## Global System Overview
+
+This repository houses a progressive, production-grade embedded systems portfolio engineered on **ESP-IDF v6.1** and the **ESP32-S3** microcontroller. The architecture transitions from bare-metal peripheral manipulation to robust, containerized, and offline-first local IoT communication pipelines.
+
+---
+
+## Global Toolchain & Environment Baseline
+
+- **Embedded Framework**: Espressif ESP-IDF v6.1
+- **Target Hardware**: ESP32-S3 DevKit (Dual-core Xtensa LX7)
+- **Host OS & Virtualization**: Windows 11 / WSL2 (Ubuntu) / Docker Desktop
+- **Build System**: CMake 3.25+ / Ninja 1.11+
+
+---
+
+## License
+
+Distributed under the MIT License. See the [LICENSE](./LICENSE) file for details.
