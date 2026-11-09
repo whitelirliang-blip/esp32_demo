@@ -1,0 +1,332 @@
+# ESP32-S3 Local Docker MQTT Telemetry & Control System
+
+A robust, offline-first IoT telemetry and control pipeline built on ESP-IDF v6.1 and ESP32-S3, bridging device-side FreeRTOS tasks to a containerized Eclipse Mosquitto broker via Kconfig-decoupled TCP/MQTT sockets.
+
+## Key Features
+
+* **Local Vendorization & Offline Build**: Eliminates external cloud registry reliance by vendorizing the `mqtt` source component directly into the project tree (`components/mqtt`), ensuring 100% reproducible offline builds via direct CMake integration.
+* **Kconfig-Driven Environment Decoupling**: Decouples hardcoded network topology through `Kconfig.projbuild`, mapping configurable broker URIs (`CONFIG_ESP_MQTT_BROKER_URI`) for seamless switching between local WSL2/Docker containers and production servers.
+* **Bidirectional Event-Driven Control Loop**: Implements thread-safe asynchronous telemetry publishing and real-time lower-layer event handling (`MQTT_EVENT_CONNECTED`, `MQTT_EVENT_DATA`) using ESP-IDF event loops with secure bounds-checked payload parsing (`%.*s`).
+
+
+# Hardware Architecture & Pin Mapping
+
+## 1. System Topology & Hardware Architecture
+
+The system relies on an **ESP32-S3 DevKit** operating as an edge telemetry and control node, communicating with a host-side containerized **Eclipse Mosquitto MQTT broker** (running on WSL2/Docker via local network sockets).
+
+```
++-------------------------------------------------------------+
+|                     ESP32-S3 DevKit                         |
+|                                                             |
+|  +--------------------+         +------------------------+  |
+|  | FreeRTOS Tasks     |         | ESP-IDF v6.1 Wi-Fi STA |  |
+|  | (Telemetry Loop)   |         | (TCP/IP Stack)         |  |
+|  +---------+----------+         +-----------+------------+  |
+|            | (Async Queue)                  |               |
+|            v                                v               |
+|  +------------------------------------------+------------+  |
+|  |              MQTT Client Manager                      |  |
+|  |              (mqtt_manager.c)                         |  |
+|  +--------------------------+----------------------------+  |
++-----------------------------|-------------------------------+
+                              | Wi-Fi STA (TCP Port 1883)
+                              v
++-------------------------------------------------------------+
+|           Host Machine (Windows / WSL2 Docker)              |
+|  +-------------------------------------------------------+  |
+|  | Eclipse Mosquitto MQTT Broker (IP: 192.168.138.155)   |  |
+|  +-------------------------------------------------------+  |
+|  | VS Code VSMqtt Debugging Client                       |  |
+|  +-------------------------------------------------------+  |
++-------------------------------------------------------------+
+
+```
+
+---
+
+## 2. Pin Mapping & Peripheral Resource Allocation Table
+
+| Peripheral / Bus | Pin / Signal Name | Hardware Definition | Functional Description & Engineering Constraints |
+| --- | --- | --- | --- |
+| **UART0 (Console)** | **GPIO 43 (U0TXD)**<br>
+
+<br>**GPIO 44 (U0RXD)** | Onboard USB-to-UART Bridge (CP2102/CH343) | Dedicated system diagnostic console. Baud rate: 115200 8N1. Strictly reserved for `idf.py monitor`. |
+| **Wi-Fi RF Subsystem** | 2.4 GHz ISM Band | Internal PCB Trace Antenna | Operates under Station (STA) mode to associate with local access point, handling TCP/IP transport for MQTT. |
+| **Status Indicator** | **GPIO 2** (Onboard LED) | General-Purpose Output (GPIO) | Toggled or driven based on MQTT connection status (`MQTT_EVENT_CONNECTED` vs `MQTT_EVENT_DISCONNECTED`). |
+
+
+# System Design & Data Flow
+
+## 1. System Data Flow Architecture
+
+The runtime data flow follows an asynchronous, decoupled producer-consumer pattern between the sensor telemetry loops, the FreeRTOS task scheduler, and the ESP-IDF MQTT transport layer.
+
+```
++-------------------------------------------------------------------------+
+|                        FreeRTOS Application Layer                       |
+|                                                                         |
+|  +-----------------------+              +----------------------------+  |
+|  | Telemetry Producer    |              | Control Command Consumer   |  |
+|  | (Periodic Sensor Task)|              | (MQTT_EVENT_DATA Callback) |  |
+|  +-----------+-----------+              +--------------^-------------+  |
+|              |                                         |                |
+|              | JSON Payload String                     | Parsed Command |
+|              v                                         |                |
+|  +-----------------------------------------------------+------------+  |
+|  |                  MQTT Manager Core (mqtt_manager.c)              |  |
+|  |  - esp_mqtt_client_publish()   - esp_mqtt_client_subscribe()     |  |
+|  +-------------------------------------+----------------------------+  |
++----------------------------------------|--------------------------------+
+                                         | TCP / MQTT (Port 1883)
+                                         v
++-------------------------------------------------------------------------+
+|                  Host Machine (Docker Mosquitto Broker)                 |
++-------------------------------------------------------------------------+
+
+```
+
+---
+
+## 2. End-to-End Data Flow Sequence Table
+
+| Step | Component / Layer | Action / Event (`Event Trigger`) | Data Payload / Format (`Payload`) | Engineering Objective (`Rationale`) |
+| --- | --- | --- | --- | --- |
+| **1** | **Telemetry Task** | Periodic tick expiration | `{"device_id":"esp32_s3","seq":N,"uptime":T}` | Generates structured JSON string representing device state for cloud ingestion. |
+| **2** | **MQTT Manager** | Calls `mqtt_manager_publish()` | Raw string pointer, length, QoS 0/1, Retain flag | Safely pushes telemetry frame to ESP-IDF MQTT underlying client queue. |
+| **3** | **Transport Stack** | TCP packet transmission via Wi-Fi STA | Encapsulated MQTT PUBLISH packet over TCP socket | Bridges the wireless node to the host network container. |
+| **4** | **Host Broker** | Eclipse Mosquitto broker indexing | Topic: `sensor/telemetry` | Routes incoming telemetry packets to active subscriber clients (e.g., VS Code VSMqtt). |
+| **5** | **Downlink Command** | `vsmqtt` Publish panel action | Topic: `esp32/control`, Payload: `{"cmd":"toggle_led"}` | Simulates remote cloud-to-device actuation commands. |
+| **6** | **Event Handler** | `MQTT_EVENT_DATA` callback execution | `event->data` pointer, `event->data_len` | Safely intercepts incoming byte streams using bounded-length memory references (`%.*s`). |
+
+
+# Software Stack & Toolchain
+
+## 1. Core Software Stack & Version Matrix
+
+The software ecosystem relies strictly on deterministic, version-pinned components to ensure absolute reproducibility across host and target environments:
+
+| Layer / Subsystem | Technology / Package Name | Version / Baseline | Architectural Role & Engineering Justification |
+| --- | --- | --- | --- |
+| **Host OS & Virtualization** | Windows 11 / WSL2 (Ubuntu) | WSL2 Linux Kernel 5.15+ | Provides a native POSIX-compliant environment for host-side tooling, container orchestration, and script execution. |
+| **Container Engine** | Docker Desktop (WSL2 Backend) | Latest Stable | Manages the containerized backend services (Eclipse Mosquitto MQTT broker), isolating network sockets from host pollution. |
+| **Embedded Framework** | Espressif ESP-IDF | **v6.1** | Official IoT Development Framework, offering robust FreeRTOS integration, network stacks, and hardware abstraction layers. |
+| **Build & Toolchain** | CMake / Ninja / esptool | CMake 3.25+ / Ninja 1.11+ | Standardized, high-performance meta-build system replacing legacy Makefiles for fast incremental compilation. |
+| **IDE & Debugging** | VS Code / ESP-IDF Extension / VSMqtt | VS Code 1.85+ | Integrated development environment hosting compilation tasks, serial monitoring, and MQTT telemetry inspection. |
+
+---
+
+## 2. Toolchain Execution Pipeline
+
+```
++-------------------------------------------------------------+
+|                Host Environment (VS Code / WSL2)            |
+|                                                             |
+|  +--------------------+         +------------------------+  |
+|  | Source Code        |         | CMakeLists.txt         |  |
+|  | (.c / .h / Kconfig)|         | (Build Rules)          |  |
+|  +---------+----------+         +-----------+------------+  |
+|            |                                |               |
+|            +---------------+----------------+               |
+|                            |                                |
+|                            v                                |
+|                 [idf.py build / cmake]                      |
+|                            |                                |
+|                            v                                |
+|             Firmware Binary (.bin) & Image                  |
++----------------------------|--------------------------------+
+                             | 
+                             | [idf.py flash (UART / COM)]
+                             v
++-------------------------------------------------------------+
+|                     ESP32-S3 Hardware                       |
+|         (Execution & FreeRTOS / Wi-Fi / MQTT Stack)         |
++-------------------------------------------------------------+
+
+```
+
+# Quick Start & Build Instructions
+
+## 1. Environment & Prerequisites Checklist
+
+To ensure a 100% reproducible offline build environment, confirm the host system meets the following requirements before proceeding:
+
+| Subsystem / Tool | Required Version / Setting | Verification Command | Expected Output / Result |
+| --- | --- | --- | --- |
+| **ESP-IDF Environment** | v6.1 | `idf.py --version` | `ESP-IDF v6.1` |
+| **Docker Engine** | Docker Desktop (WSL2) | `docker ps` | Active daemon running `eclipse-mosquitto` |
+| **Host Network Rule** | Inbound TCP Port 1883 | PowerShell (Admin):<br>
+
+<br>`Get-NetFirewallRule -DisplayName "Mosquitto 1883"` | State: `Enabled`, Action: `Allow` |
+| **Serial Driver** | CP2102 / CH343 / USB-JTAG | Windows Device Manager | Active COM Port (e.g., `COM3`) without driver warnings |
+
+---
+
+## 2. Step-by-Step Compilation & Deployment Workflow
+
+Follow this deterministic execution sequence to configure, compile, flash, and monitor the ESP32-S3 firmware:
+
+```
+[Step 1: Clean & Purge] ---> [Step 2: Environment Config] ---> [Step 3: Build] ---> [Step 4: Flash & Monitor]
+
+```
+
+### Step 1: Environment Clean & Build Directory Purge
+
+Remove stale CMake cache trees and component manager locks to prevent component graph resolution issues:
+
+```bash
+python "$env:IDF_PATH\tools\idf.py" fullclean
+
+```
+
+### Step 2: Configure Project Parameters via Kconfig
+
+Set the target chip architecture and configure the local Mosquitto Broker IPv4 address:
+
+```bash
+# 1. Set target chip architecture
+python "$env:IDF_PATH\tools\idf.py" set-target esp32s3
+
+# 2. Launch Kconfig menu UI
+python "$env:IDF_PATH\tools\idf.py" menuconfig
+
+```
+
+* **Kconfig Navigation**: Go to `MQTT Broker Configuration` $\rightarrow$ Set `MQTT Broker URI` to `mqtt://<HOST_LOCAL_IP>:1883` (e.g., `mqtt://192.168.138.155:1883`). Save and exit.
+
+### Step 3: Incremental Compilation
+
+Compile the project tree using CMake/Ninja with offline local component linkage:
+
+```bash
+python "$env:IDF_PATH\tools\idf.py" build
+
+```
+
+### Step 4: Flash Firmware & Launch UART Monitor
+
+Flash the generated binary to the target board and open the interactive serial console (substitute `COM3` with your actual device port):
+
+```bash
+python "$env:IDF_PATH\tools\idf.py" -p COM3 flash monitor
+
+```
+
+*(Note: To exit `idf.py monitor`, press `Ctrl + ]`.)*
+
+---
+
+## 3. Minimalist Verification & Testing Protocol
+
+Execute the following minimal test suite to confirm end-to-end telemetry and control loop stability:
+
+| Test Case | Procedure / Action | UART Log / VSMqtt Terminal Indicator | Success Criteria |
+| --- | --- | --- | --- |
+| **TC-01: Wi-Fi STA Association** | Power on board with valid AP credentials in `menuconfig`. | `I (1864) esp_netif_handlers: sta ip: 192.168.138.x` | Valid IPv4 address assigned via DHCP. |
+| **TC-02: MQTT Handshake & Sub** | Device connects to host Docker broker. | `I (31887) mqtt_manager: MQTT_EVENT_CONNECTED to broker at mqtt://...`<br>
+
+<br>`I (31890) mqtt_manager: Successfully subscribed to 'esp32/control'` | Session established; control topic subscribed successfully. |
+| **TC-03: Upstream Telemetry Stream** | Observe `VSMqtt` Subscribe panel for topic `sensor/telemetry`. | `VSMqtt` panel displays:<br>
+
+<br>`{"status":"online"}` and periodic `seq` payloads. | JSON telemetry frames arrive at 5-second intervals. |
+| **TC-04: Downstream Command Processing** | Publish to `esp32/control` via `VSMqtt` with payload `{"cmd":"toggle"}`. | UART Monitor output:<br>
+
+<br>`I (...) mqtt_manager: MQTT_EVENT_DATA received on topic esp32/control`<br>
+
+<br>`Payload: {"cmd":"toggle"}` | Raw payload captured and logged without memory overread. |
+
+
+# Engineering Challenges & Debugging
+
+## 1. Evolution Matrix & Architectural Decision Record (ADR)
+
+The transition from cloud-dependent prototyping to a fully containerized, offline-first embedded development loop for stage 3 (`03_wifi_mqtt`) is structured in the following engineering matrix:
+
+| Evolution Stage (`Stage`) | Bottleneck & Pain Points (`Bottleneck`) | Architectural Decision (`Architectural Decision`) | Engineering Outcome (`Engineering Outcome`) |
+| --- | --- | --- | --- |
+| **1. Dependency Breaking** | Remote component manager registry failure; CMake throwing `unknown name` exceptions when resolving `esp_mqtt`. | Completely abandoned remote component registry dependencies in favor of local source code **Vendorization** (`components/mqtt`). | Eliminated external network dependency, achieving 100% reproducible offline compilation. |
+| **2. Server-Side Closed Loop** | Public cloud brokers introduced high latency and external connectivity instability. | Deployed a local **Eclipse Mosquitto** broker via WSL2 + Docker, mapping standard TCP port `1883`. | Established a millisecond-level, fully controllable local debugging loop. |
+| **3. Access & Network Alignment** | Docker socket permission denials and Windows firewall rules blocking inbound host-to-device traffic. | Configured Docker user group permissions and added an explicit Windows Firewall inbound TCP rule for port `1883`. | Opened the underlying socket transport layer, ensuring reliable bi-directional host-device communication. |
+| **4. Configuration Decoupling** | Hardcoded IPv4 addresses reduced portability and violated open-source hygiene standards. | Introduced `Kconfig.projbuild` declaring the `CONFIG_ESP_MQTT_BROKER_URI` configuration macro. | Achieved total decoupling of source code from network environments, meeting open-source compliance. |
+
+---
+
+## 2. Systematic Troubleshooting & Verification Methodology
+
+To validate each architectural milestone during debugging, the following minimalist verification protocol was executed:
+
+| Stage | Diagnostic Tool / Method | Observed Error / Symptom | Corrective Action & Verification |
+| --- | --- | --- | --- |
+| **Stage 1** | Terminal (`idf.py build`) | `Failed to resolve component 'esp_mqtt'... unknown name` | Vendorized the MQTT component locally; verified clean component graph traversal via CMake. |
+| **Stage 2** | Docker CLI (`docker ps`) | Broker unreachable or latency spikes on public endpoints. | Started local Mosquitto container; verified port binding via `netstat -an |
+| **Stage 3** | PowerShell / ESP32 Monitor | `esp-tls: select() timeout` and `PermissionError(13) Access is denied` on UART. | Executed `New-NetFirewallRule` for port 1883, disabled VPN TUN mode, and released COM port locks. |
+| **Stage 4** | VS Code VSMqtt & UART Monitor | Hardcoded IP mismatch upon shifting local test networks. | Evaluated `menuconfig`, injected dynamic URI macro, and confirmed successful `MQTT_EVENT_CONNECTED`. |
+
+
+## License & Author Information
+
+### Software License & Open-Source Compliance
+
+This project is licensed and distributed under the **MIT Open-Source License**.
+
+```text
+Copyright (c) 2026 Xiquan Liang 
+
+Permission is hereby granted, free of charge, to any person obtaining a copy
+of this software and associated documentation files (the "Software"), to deal
+in the Software without restriction, including without limitation the rights
+to use, copy, modify, merge, publish, distribute, sublicense, and/or sell
+copies of the Software, and to permit persons to whom the Software is
+furnished to do so, subject to the following conditions:
+
+The above copyright notice and this permission notice shall be included in all
+copies or substantial portions of the Software.
+
+THE SOFTWARE IS PROVIDED "AS IS", WITHOUT WARRANTY OF ANY KIND, EXPRESS OR
+IMPLIED, INCLUDING BUT NOT LIMITED TO THE WARRANTIES OF MERCHANTABILITY,
+FITNESS FOR A PARTICULAR PURPOSE AND NONINFRINGEMENT. IN NO EVENT SHALL THE
+AUTHORS OR COPYRIGHT HOLDERS BE LIABLE FOR ANY CLAIM, DAMAGES OR OTHER
+LIABILITY, WHETHER IN AN ACTION OF CONTRACT, TORT OR OTHERWISE, ARISING FROM,
+OUT OF OR IN CONNECTION WITH THE SOFTWARE OR THE USE OR OTHER DEALINGS IN THE
+SOFTWARE.
+
+```
+
+#### Third-Party Dependency & Component Attribution
+
+Under the premise of complying with the MIT license, this project relies on and integrates the following upstream open source components:
+
+| Component / Layer | Licensing Standard | Copyright Holder / Origin | Compliance Obligations & Notes |
+| --- | --- | --- | --- |
+| **ESP-IDF Framework** | Apache License 2.0 | Espressif Systems (Shanghai) Co., Ltd. | Includes Espressif HAL drivers, register mappings, and build tools. |
+| **FreeRTOS Kernel** | MIT License | Amazon.com, Inc. or its affiliates | Deterministic preemptive kernel port (`v10.4.3-LTS` integrated in ESP-IDF v6.1). |
+
+---
+
+### Author Provenance & Maintainer Contact
+
+* **Lead Architect / Primary Author**: Xiquan Liang (梁锡泉)
+* **Academic/Professional Role**: Undergraduate Student in IoT Engineering
+* **Focus**: Embedded Systems, Real-Time Operating Systems (RTOS), & Edge IoT Infrastructure
+* **Repository Context**: Baseline reference implementation for deterministic FreeRTOS multi-tasking architectures, stack overflow protection, and modern CMake toolchain migration (`esp32-espidf-freertos-tasks-baseline`).
+
+#### Official Channels & Code Repositories
+
+* **GitHub Repository**: [`whitelirliang-blip/esp32_demo`](https://github.com/whitelirliang-blip/esp32_demo)
+* **Issue Tracker**: Report architectural bugs or API compliance issues via GitHub Issues.
+
+---
+
+### Minimalist Verification Steps (Compliance and Metadata Validation)
+
+1. **License and Copyright Notice Consistency Check**:
+* Verify the presence of a standard `LICENSE` file in the root repository directory.
+* **Verification Command**:
+```bash
+head -n 5 LICENSE
+
+```
+
+
+* **Success Criteria**: The output must include the `Copyright (c) 2026 Xiquan Liang` statement and the MIT license header information.
